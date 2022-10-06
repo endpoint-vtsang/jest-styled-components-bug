@@ -1,70 +1,79 @@
-# Getting Started with Create React App
+## Problem
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+In v7.1.1, Jest-styled-components replaced `css` dependency to `@adobe/css-tools`. There is a bug in `@adobe/css-tools` where its
+parses chained selectors incorrectly. Chained selectors with psuedo-states are parsed incorrectly.
 
-## Available Scripts
+For example
 
-In the project directory, you can run:
+```
+export const StyledButton = styled('button')`
+  color: white;
+  padding: 40px;
+  background: black;
 
-### `npm start`
+  &[data-focus-visible-added]:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    background: red;
+    box-shadow: green;
+  }
+`;
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Before the update, `css` would parse the rule as two selectors
 
-### `npm test`
+```
+    {
+        type: 'rule',
+        selectors: [
+          '.fNulUe[data-focus-visible-added]:not(:disabled)',
+          '.fNulUe:focus-visible:not(:disabled)'
+        ],
+        declarations: [ [Object], [Object] ],
+        position: { start: [Object], end: [Object], source: '' }
+    },
+```
+After the update, `@adobe/css-tools` would parse the rule as one selector
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```
+    {
+        type: 'rule',
+        selectors: [
+            '.fNulUe[data-focus-visible-added]:not(:disabled),.fNulUe:focus-visible:not(:disabled)'
+        ],
+        declarations: [ [Object], [Object] ],
+        position: { start: [Object], end: [Object], source: '' }
+    },
+```
 
-### `npm run build`
+This would result in an error where it can't find the selector with `toHaveStyleRule()`
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```
+   No style rules found on passed Component using options:
+    {"modifier":"&:focus-visible:not(:disabled)"}
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+      18 |
+      19 |     await expect(myButton).toHaveFocus();
+    > 20 |     await expect(myButton).toHaveStyleRule("box-shadow", "green", {
+         |                            ^
+      21 |       modifier: "&:focus-visible:not(:disabled)",
+      22 |     });
+      23 |   });
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```
 
-### `npm run eject`
+## How to debug
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+In `node_modules/jest-styled-components/src/toHaveStyleRule.js` , add a console.log in `getRules()`
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```
+const getRules = (ast, classNames, options) => {
+  const rules = (hasAtRule(options) ? getAtRules(ast, options) : ast.stylesheet.rules).map((rule) => ({
+    ...rule,
+    selectors: Array.isArray(rule.selectors) ? rule.selectors.map(normalizeQuotations) : rule.selectors,
+  }));
+  console.log(rules)
+  return rules.filter((rule) => rule.type === 'rule' && hasClassNames(classNames, rule.selectors, options));
+};
+```
